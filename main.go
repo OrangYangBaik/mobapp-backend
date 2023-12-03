@@ -14,9 +14,12 @@ func main() {
 	configs.ConnectDB()
 
 	//routes
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Hello. world")
+	})
 	routes.MemberRoute(app)
 	routes.GroupRoute(app)
 	routes.DendaRoute(app)
 
-	app.Listen(":6000")
+	app.Listen("0.0.0.0:6000")
 }
