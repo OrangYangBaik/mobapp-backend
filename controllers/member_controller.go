@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
@@ -90,6 +91,60 @@ func CreateMember(c *fiber.Ctx) error {
 	})
 }
 
+func LoginMember(c *fiber.Ctx) error {
+	type LoginRequest struct {
+		Email    string `json:"email" form:"email" validate:"required,email"`
+		Password string `json:"password" form:"password" validate:"required"`
+	}
+
+	var loginRequest LoginRequest
+
+	// Parse the request body
+	if err := c.BodyParser(&loginRequest); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Failed to parse the request body"})
+	}
+
+	// Validate the request body
+	if err := memberValidate.Struct(loginRequest); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	// Connect to the database
+	ctx := context.Background()
+	db := configs.DB
+	memberCollection := configs.GetCollection(db, "members")
+
+	// Check if the provided email exists in the members collection
+	var member models.Member
+	err := memberCollection.FindOne(ctx, bson.M{"email": loginRequest.Email}).Decode(&member)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Invalid email or password 1"})
+	}
+
+	// Check if the provided password matches the stored password
+	if err := configs.ComparePasswords(member.Password, loginRequest.Password); err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Invalid email or password 2"})
+	}
+
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+
+	claims["id"] = member.ID.Hex()
+	claims["nama"] = member.Nama
+	claims["nim"] = member.NIM
+	claims["email"] = member.Email
+	claims["prodi"] = member.Prodi
+	claims["angkatan"] = member.Angkatan
+	claims["exp"] = time.Now().Add(time.Hour * 24).Unix() // Token expires in 24 hours
+
+	tokenString, err := token.SignedString([]byte(configs.JWTSecretKey))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to generate JWT token"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Login successful", "token": tokenString})
+}
+
 func GetAMember(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	memberId := c.Params("MemberId")
@@ -124,7 +179,8 @@ func EditAMember(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(responses.MemberResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": validationErr.Error()}})
 	}
 
-	update := bson.M{"nama": member.Nama, "nim": member.NIM, "password": member.Password, "email": member.Email, "prodi": member.Prodi, "angkatan": member.Angkatan}
+	hashedPassword, err := hashPassword(member.Password)
+	update := bson.M{"nama": member.Nama, "nim": member.NIM, "password": hashedPassword, "email": member.Email, "prodi": member.Prodi, "angkatan": member.Angkatan}
 
 	result, err := memberCollection.UpdateOne(ctx, bson.M{"id": objId}, bson.M{"$set": update})
 

@@ -99,27 +99,49 @@ func DeleteADenda(c *fiber.Ctx) error {
 
 func GetAllDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	var members []models.Member
 	defer cancel()
 
-	results, err := memberCollection.Find(ctx, bson.M{})
+	memberID := c.Params("memberID")
+	groupID := c.Params("groupID")
 
+	objMemberID, err := primitive.ObjectIDFromHex(memberID)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid member ID",
+		})
 	}
 
-	//reading from the db in an optimal way
-	defer results.Close(ctx)
-	for results.Next(ctx) {
-		var singleMember models.Member
-		if err = results.Decode(&singleMember); err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
-		}
-
-		members = append(members, singleMember)
+	objGroupID, err := primitive.ObjectIDFromHex(groupID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid group ID",
+		})
 	}
 
-	return c.Status(http.StatusOK).JSON(
-		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": members}},
-	)
+	filter := bson.M{"id_member": objMemberID, "id_group": objGroupID}
+
+	cursor, err := dendaCollection.Find(ctx, filter)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error finding dendas",
+		})
+	}
+	defer cursor.Close(ctx)
+
+	var dendas []models.Denda
+	if err := cursor.All(ctx, &dendas); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error decoding dendas",
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
+		Status:  http.StatusOK,
+		Message: "Success",
+		Data:    &fiber.Map{"dendas": dendas},
+	})
 }
