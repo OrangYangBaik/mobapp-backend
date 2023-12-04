@@ -3,6 +3,8 @@ package main
 import (
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/routes" //add this
+	"log"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -10,16 +12,18 @@ import (
 func main() {
 	app := fiber.New()
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "6000"
+	}
+
 	//run database
 	configs.ConnectDB()
 
 	//routes
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello. world")
-	})
 	routes.MemberRoute(app)
 	routes.GroupRoute(app)
 	routes.DendaRoute(app)
 
-	app.Listen("0.0.0.0:6000")
+	log.Fatal(app.Listen("0.0.0.0:" + port))
 }
