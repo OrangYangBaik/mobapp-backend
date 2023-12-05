@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"fiber-mongo-api/controllers" //add this
+	"fiber-mongo-api/controllers"
 	"fiber-mongo-api/middlewares"
 
 	"github.com/gofiber/fiber/v2"

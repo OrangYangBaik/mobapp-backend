@@ -11,36 +11,35 @@ import (
 
 func JWTMiddleware() func(*fiber.Ctx) error {
 	return func(c *fiber.Ctx) error {
-		// Get the "Authorization" header from the request
+		//ambil header "atthorization"
 		authHeader := c.Get("Authorization")
 
-		// Check if the header is missing or doesn't start with "Bearer "
+		// cek headernya kosong ato g ada prefix bearer
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized"})
 		}
 
-		// Extract the JWT token from the header
+		//ekstrak jwt tokennya
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-		// Parse and validate the JWT token
+		// validasi tokennya
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// Check the signing method
+			// cek signing method?
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("Invalid signing method")
 			}
-			// Provide the key for validation
+			// kirim keynya
 			return []byte(configs.JWTSecretKey), nil
 		})
 
-		// Check for errors during parsing or validation
 		if err != nil || !token.Valid {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Unauthorized"})
 		}
 
-		// Set the user information in the context for further handling
+		// taro user di lokal kek auth user di laravel
 		c.Locals("user", token.Claims.(jwt.MapClaims))
 		//fmt.Println(c.Locals("user").(jwt.MapClaims))
-		// Continue to the next middleware or route handler
+
 		return c.Next()
 	}
 }

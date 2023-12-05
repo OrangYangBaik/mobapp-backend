@@ -24,7 +24,6 @@ func CreateGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Parse the request body into a group object
 	var group models.Group
 	if err := c.BodyParser(&group); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.GroupResponse{
@@ -34,7 +33,6 @@ func CreateGroup(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate the group object
 	if validationErr := groupValidate.Struct(&group); validationErr != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.GroupResponse{
 			Status:  http.StatusBadRequest,
@@ -49,7 +47,6 @@ func CreateGroup(c *fiber.Ctx) error {
 		RefKey:    group.RefKey,
 	}
 
-	// Insert the new group
 	result, err := groupCollection.InsertOne(ctx, newGroup)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
@@ -59,7 +56,7 @@ func CreateGroup(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get the user ID from the JWT token
+	// ambil local user
 	user := c.Locals("user")
 	//fmt.Println(user)
 	userClaims, ok := user.(jwt.MapClaims)
@@ -89,7 +86,6 @@ func CreateGroup(c *fiber.Ctx) error {
 		})
 	}
 
-	// Create a new membership with the user as an admin
 	membershipWithIsAdmin := models.Membership{
 		ID:        primitive.NewObjectID(),
 		ID_Member: memberID,
@@ -97,7 +93,6 @@ func CreateGroup(c *fiber.Ctx) error {
 		IsAdmin:   true,
 	}
 
-	// Insert the new membership
 	_, err = membershipCollection.InsertOne(ctx, membershipWithIsAdmin)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
@@ -191,11 +186,9 @@ func DeleteAGroup(c *fiber.Ctx) error {
 
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			// Membership not found, handle accordingly
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Membership not found"})
 		}
 
-		// Other errors, handle accordingly
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving membership"})
 	}
 
@@ -268,7 +261,6 @@ func JoinGroup(c *fiber.Ctx) error {
 		})
 	}
 
-	// Check if the user is already a member of the group
 	var existingMembership models.Membership
 	err = membershipCollection.FindOne(
 		ctx,
@@ -276,36 +268,31 @@ func JoinGroup(c *fiber.Ctx) error {
 	).Decode(&existingMembership)
 
 	if err == nil {
-		// Membership already exists
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
 			"message": "User is already a member of the group",
 		})
 	} else if err != mongo.ErrNoDocuments {
-		// Other errors
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Error checking membership",
 			"message": "Internal Server Error",
 		})
 	}
 
-	// If ErrNoDocuments is returned, the membership does not exist
 	newMembership := models.Membership{
 		ID:        primitive.NewObjectID(),
 		ID_Member: memberID,
 		ID_Group:  groupID,
-		IsAdmin:   false, // Set IsAdmin as needed
+		IsAdmin:   false,
 	}
 
 	_, err = membershipCollection.InsertOne(ctx, newMembership)
 	if err != nil {
-		// Handle the error more gracefully
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error":   "Failed to create membership",
 			"message": "Internal Server Error",
 		})
 	}
 
-	// Return success response
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "User successfully joined the group",
 	})

@@ -34,7 +34,6 @@ func CreateMember(c *fiber.Ctx) error {
 
 	var member models.Member
 
-	// Validate the request body
 	if err := c.BodyParser(&member); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.MemberResponse{
 			Status:  http.StatusBadRequest,
@@ -43,7 +42,6 @@ func CreateMember(c *fiber.Ctx) error {
 		})
 	}
 
-	// Use the validator library to validate required fields
 	if validationErr := memberValidate.Struct(&member); validationErr != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.MemberResponse{
 			Status:  http.StatusBadRequest,
@@ -56,7 +54,6 @@ func CreateMember(c *fiber.Ctx) error {
 	hashedPassword, err := hashPassword(password)
 
 	if err != nil {
-		// Handle the error more gracefully, perhaps log and return a user-friendly message
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{
 			Status:  http.StatusInternalServerError,
 			Message: "Failed to hash the password",
@@ -76,7 +73,6 @@ func CreateMember(c *fiber.Ctx) error {
 
 	result, err := memberCollection.InsertOne(ctx, newMember)
 	if err != nil {
-		// Handle the error more gracefully, perhaps log and return a user-friendly message
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{
 			Status:  http.StatusInternalServerError,
 			Message: "Failed to insert member",
@@ -92,6 +88,9 @@ func CreateMember(c *fiber.Ctx) error {
 }
 
 func LoginMember(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	type LoginRequest struct {
 		Email    string `json:"email" form:"email" validate:"required,email"`
 		Password string `json:"password" form:"password" validate:"required"`
@@ -99,29 +98,26 @@ func LoginMember(c *fiber.Ctx) error {
 
 	var loginRequest LoginRequest
 
-	// Parse the request body
 	if err := c.BodyParser(&loginRequest); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Failed to parse the request body"})
 	}
 
-	// Validate the request body
 	if err := memberValidate.Struct(loginRequest); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
 
-	// Connect to the database
-	ctx := context.Background()
-	db := configs.DB
-	memberCollection := configs.GetCollection(db, "members")
+	//ctx := context.Background()
+	//db := configs.DB
+	//memberCollection := configs.GetCollection(db, "members")
 
-	// Check if the provided email exists in the members collection
+	//cek di datbes
 	var member models.Member
 	err := memberCollection.FindOne(ctx, bson.M{"email": loginRequest.Email}).Decode(&member)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Invalid email or password 1"})
 	}
 
-	// Check if the provided password matches the stored password
+	//cek sama ga
 	if err := configs.ComparePasswords(member.Password, loginRequest.Password); err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Invalid email or password 2"})
 	}
@@ -169,12 +165,10 @@ func EditAMember(c *fiber.Ctx) error {
 
 	objId, _ := primitive.ObjectIDFromHex(memberId)
 
-	//validate the request body
 	if err := c.BodyParser(&member); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.MemberResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
 
-	//use the validator library to validate required fields
 	if validationErr := memberValidate.Struct(&member); validationErr != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.MemberResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": validationErr.Error()}})
 	}
@@ -187,7 +181,7 @@ func EditAMember(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
-	//get updated user details
+
 	var updatedMember models.Member
 	if result.MatchedCount == 1 {
 		err := memberCollection.FindOne(ctx, bson.M{"id": objId}).Decode(&updatedMember)
@@ -234,7 +228,6 @@ func GetAllMember(c *fiber.Ctx) error {
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
 
-	//reading from the db in an optimal way
 	defer results.Close(ctx)
 	for results.Next(ctx) {
 		var singleMember models.Member

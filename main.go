@@ -2,7 +2,7 @@ package main
 
 import (
 	"fiber-mongo-api/configs"
-	"fiber-mongo-api/routes" //add this
+	"fiber-mongo-api/routes"
 	"log"
 	"os"
 
@@ -17,10 +17,10 @@ func main() {
 		port = "6000"
 	}
 
-	//run database
+	//buat konfigurasi koneksi ke database
 	configs.ConnectDB()
 
-	//routes
+	//router
 	routes.MemberRoute(app)
 	routes.GroupRoute(app)
 	routes.DendaRoute(app)

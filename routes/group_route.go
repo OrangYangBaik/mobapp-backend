@@ -9,7 +9,7 @@ import (
 
 func GroupRoute(app *fiber.App) {
 	app.Get("/group/:groupRefKey", controllers.GetAGroup)
-	app.Post("/group", middlewares.JWTMiddleware(), controllers.CreateGroup)                    //create
-	app.Delete("/group/delete/:groupID", middlewares.JWTMiddleware(), controllers.DeleteAGroup) //delete
+	app.Post("/group", middlewares.JWTMiddleware(), controllers.CreateGroup)                   
+	app.Delete("/group/delete/:groupID", middlewares.JWTMiddleware(), controllers.DeleteAGroup)
 	app.Post("/group/join/:groupID", middlewares.JWTMiddleware(), controllers.JoinGroup)
 }

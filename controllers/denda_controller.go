@@ -24,7 +24,6 @@ func CreateDenda(c *fiber.Ctx) error {
 
 	var denda models.Denda
 
-	// Validate the request body
 	if err := c.BodyParser(&denda); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
 			Status:  http.StatusBadRequest,
@@ -33,7 +32,6 @@ func CreateDenda(c *fiber.Ctx) error {
 		})
 	}
 
-	// Use the validator library to validate required fields
 	if validationErr := dendaValidate.Struct(&denda); validationErr != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
 			Status:  http.StatusBadRequest,
@@ -59,7 +57,6 @@ func CreateDenda(c *fiber.Ctx) error {
 
 	result, err := groupCollection.InsertOne(ctx, newDenda)
 	if err != nil {
-		// Handle the error more gracefully, perhaps log and return a user-friendly message
 		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{
 			Status:  http.StatusInternalServerError,
 			Message: "Failed to insert group",
