@@ -45,6 +45,7 @@ func CreateGroup(c *fiber.Ctx) error {
 		ID:        primitive.NewObjectID(),
 		NamaGroup: group.NamaGroup,
 		RefKey:    group.RefKey,
+		Status:    true,
 	}
 
 	result, err := groupCollection.InsertOne(ctx, newGroup)
@@ -135,10 +136,28 @@ func GetAGroup(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(responses.GroupResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": group}})
 }
 
-func DeleteAGroup(c *fiber.Ctx) error {
+func DeactivateAGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	groupIDHex := c.Params("groupID")
+	groupRefKey := c.Params("groupRefkey")
+	var group models.Group
 	defer cancel()
+
+	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
 
 	user := c.Locals("user")
 	//fmt.Println(user)
@@ -160,66 +179,46 @@ func DeleteAGroup(c *fiber.Ctx) error {
 		})
 	}
 
-	memberID, err := primitive.ObjectIDFromHex(memberIDHex)
+	isAdmin, err := checkAdmin(ctx, memberIDHex, groupRefKey)
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.GroupResponse{
-			Status:  http.StatusBadRequest,
-			Message: "Failed to convert member ID",
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
 			Data:    &fiber.Map{"error": err.Error()},
 		})
 	}
 
-	groupID, err := primitive.ObjectIDFromHex(groupIDHex)
-	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.GroupResponse{
-			Status:  http.StatusBadRequest,
-			Message: "Failed to convert group ID",
-			Data:    &fiber.Map{"error": err.Error()},
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
 		})
 	}
-
-	var membership models.Membership
-	err = membershipCollection.FindOne(
-		ctx,
-		bson.M{"id_member": memberID, "id_group": groupID},
-	).Decode(&membership)
-
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Membership not found"})
-		}
-
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Error retrieving membership"})
-	}
-
-	isAdmin := membership.IsAdmin
 
 	if isAdmin {
-		result, err := groupCollection.DeleteOne(ctx, bson.M{"_id": groupID})
+		update := bson.M{"status": false}
+		result, err := groupCollection.UpdateOne(ctx, bson.M{"_id": group.ID}, bson.M{"$set": update})
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 		}
 
-		if result.DeletedCount < 1 {
-			return c.Status(http.StatusNotFound).JSON(
-				responses.GroupResponse{Status: http.StatusNotFound, Message: "error", Data: &fiber.Map{"data": "Group with specified ID not found!"}},
-			)
+		if result.MatchedCount != 1 {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
 		}
-
-		result, err = membershipCollection.DeleteOne(ctx, bson.M{"id_member": memberID, "id_group": groupID})
-
-		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
-		}
-
-		return c.Status(http.StatusOK).JSON(
-			responses.GroupResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Group successfully deleted!"}},
-		)
 	} else {
 		return c.Status(http.StatusUnauthorized).JSON(
 			responses.GroupResponse{Status: http.StatusUnauthorized, Message: "failed", Data: &fiber.Map{"data": "Unauthorized"}},
 		)
 	}
+
+	return c.Status(http.StatusOK).JSON(
+		responses.GroupResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Group successfully deactivated!"}},
+	)
 }
 
 func JoinGroup(c *fiber.Ctx) error {

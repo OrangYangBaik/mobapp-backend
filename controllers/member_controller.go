@@ -5,6 +5,7 @@ import (
 	"fiber-mongo-api/configs"
 	"fiber-mongo-api/models"
 	"fiber-mongo-api/responses"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -18,7 +19,39 @@ import (
 )
 
 var memberCollection *mongo.Collection = configs.GetCollection(configs.DB, "members")
+
 var memberValidate = validator.New()
+var Validate = validator.New()
+
+func SemuaMember(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var members []models.Member
+	cursor, err := memberCollection.Find(ctx, bson.M{})
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving members",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+	defer cursor.Close(ctx)
+
+	if err := cursor.All(ctx, &members); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error decoding members",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.MemberResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"data": members},
+	})
+}
 
 func hashPassword(password string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -144,12 +177,49 @@ func LoginMember(c *fiber.Ctx) error {
 func GetAMember(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	memberId := c.Params("MemberId")
+	groupRefKey := c.Params("groupRefKey")
 	var member models.Member
 	defer cancel()
 
+	user := c.Locals("user")
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	isAdmin, err := checkAdmin(ctx, memberIDHex, groupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
 	objId, _ := primitive.ObjectIDFromHex(memberId)
 
-	err := memberCollection.FindOne(ctx, bson.M{"id": objId}).Decode(&member)
+	err = memberCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&member)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
@@ -176,7 +246,7 @@ func EditAMember(c *fiber.Ctx) error {
 	hashedPassword, err := hashPassword(member.Password)
 	update := bson.M{"nama": member.Nama, "nim": member.NIM, "password": hashedPassword, "email": member.Email, "prodi": member.Prodi, "angkatan": member.Angkatan}
 
-	result, err := memberCollection.UpdateOne(ctx, bson.M{"id": objId}, bson.M{"$set": update})
+	result, err := memberCollection.UpdateOne(ctx, bson.M{"_id": objId}, bson.M{"$set": update})
 
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
@@ -217,28 +287,441 @@ func DeleteAMember(c *fiber.Ctx) error {
 	)
 }
 
-func GetAllMember(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	var members []models.Member
-	defer cancel()
-
-	results, err := memberCollection.Find(ctx, bson.M{})
-
+func checkAdmin(ctx context.Context, memberIDHex, groupRefKey string) (bool, error) {
+	var group models.Group
+	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return false, err
 	}
 
-	defer results.Close(ctx)
-	for results.Next(ctx) {
-		var singleMember models.Member
-		if err = results.Decode(&singleMember); err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+	memberID, err := primitive.ObjectIDFromHex(memberIDHex)
+
+	var membership models.Membership
+	err = membershipCollection.FindOne(ctx, bson.M{"id_member": memberID, "id_group": group.ID}).Decode(&membership)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return membership.IsAdmin, nil
+}
+
+func GetAllMember(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	groupRefKey := c.Params("groupRefKey")
+	var members []models.Member
+	var memberships []models.Membership
+	var group models.Group
+	defer cancel()
+
+	user := c.Locals("user")
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	isAdmin, err := checkAdmin(ctx, memberIDHex, groupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
+	err = groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
 		}
 
-		members = append(members, singleMember)
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	cursor, err := membershipCollection.Find(ctx, bson.M{"id_group": group.ID})
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving memberships",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+	defer cursor.Close(ctx)
+
+	if err := cursor.All(ctx, &memberships); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error decoding memberships",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	for _, membership := range memberships {
+		var member models.Member
+		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+				Status:  http.StatusInternalServerError,
+				Message: "Error retrieving member",
+				Data:    &fiber.Map{"data": err.Error()},
+			})
+		}
+		members = append(members, member)
 	}
 
 	return c.Status(http.StatusOK).JSON(
 		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": members}},
 	)
+}
+
+func KickAMember(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type KickRequest struct {
+		GroupRefKey      string `json:"groupRefKey" form:"string" validate:"required"`
+		MemberToBeKicked string `json:"memberID" form:"string" validate:"required"`
+	}
+
+	user := c.Locals("user")
+	fmt.Println(user)
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	var kickReq KickRequest
+	if err := c.BodyParser(&kickReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Failed to parse the request body"})
+	}
+
+	if err := Validate.Struct(kickReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	isAdmin, err := checkAdmin(ctx, memberIDHex, kickReq.GroupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
+	var group models.Group
+	err = groupCollection.FindOne(ctx, bson.M{"refkey": kickReq.GroupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	memberToBeKickedID, err := primitive.ObjectIDFromHex(kickReq.MemberToBeKicked)
+
+	isMemberAdmin, err := checkAdmin(ctx, kickReq.MemberToBeKicked, kickReq.GroupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if isMemberAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, the member is admin",
+		})
+	}
+
+	result, err := membershipCollection.DeleteOne(ctx, bson.M{"id_group": group.ID, "id_member": memberToBeKickedID})
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Membership not found",
+			})
+		}
+	}
+
+	if result.DeletedCount < 1 {
+		return c.Status(http.StatusNotFound).JSON(
+			responses.GroupResponse{Status: http.StatusNotFound, Message: "error", Data: &fiber.Map{"data": "Membership with specified ID not found!"}},
+		)
+	}
+
+	return c.Status(http.StatusOK).JSON(
+		responses.GroupResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Member successfully kicked!"}},
+	)
+}
+
+func GiveAdmin(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type GiveAdminRequest struct {
+		GroupRefKey     string `json:"groupRefKey" form:"string" validate:"required"`
+		MemberToBeAdmin string `json:"memberID" form:"string" validate:"required"`
+	}
+
+	user := c.Locals("user")
+	//fmt.Println(user)
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	var adminReq GiveAdminRequest
+	if err := c.BodyParser(&adminReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Failed to parse the request body"})
+	}
+
+	if err := Validate.Struct(adminReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	isAdmin, err := checkAdmin(ctx, memberIDHex, adminReq.GroupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
+	var group models.Group
+	err = groupCollection.FindOne(ctx, bson.M{"refkey": adminReq.GroupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	update := bson.M{"isadmin": true}
+	memberToBeAdminID, err := primitive.ObjectIDFromHex(adminReq.MemberToBeAdmin)
+	result, err := membershipCollection.UpdateOne(
+		ctx,
+		bson.M{"id_member": memberToBeAdminID, "id_group": group.ID},
+		bson.M{"$set": update})
+
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error updating membership",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if result.MatchedCount != 1 {
+		return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+			Status:  http.StatusNotFound,
+			Message: "Membership not found",
+			Data:    nil,
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.GroupResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"message": "Membership updated successfully"},
+	})
+
+}
+
+func RevokeAdmin(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type RevokeAdminRequest struct {
+		GroupRefKey       string `json:"groupRefKey" form:"string" validate:"required"`
+		MemberToBeRevoked string `json:"memberID" form:"string" validate:"required"`
+	}
+
+	user := c.Locals("user")
+	//fmt.Println(user)
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	var revokeAdminReq RevokeAdminRequest
+	if err := c.BodyParser(&revokeAdminReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Failed to parse the request body"})
+	}
+
+	if err := Validate.Struct(revokeAdminReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	//cek user admin ga
+	isAdmin, err := checkAdmin(ctx, memberIDHex, revokeAdminReq.GroupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
+	var group models.Group
+	err = groupCollection.FindOne(ctx, bson.M{"refkey": revokeAdminReq.GroupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	update := bson.M{"isadmin": false}
+	memberToBeRevokedID, err := primitive.ObjectIDFromHex(revokeAdminReq.MemberToBeRevoked)
+	result, err := membershipCollection.UpdateOne(
+		ctx,
+		bson.M{"id_member": memberToBeRevokedID, "id_group": group.ID},
+		bson.M{"$set": update})
+
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error updating membership",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if result.MatchedCount != 1 {
+		return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+			Status:  http.StatusNotFound,
+			Message: "Membership not found",
+			Data:    nil,
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.GroupResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"message": "Membership updated successfully"},
+	})
+
 }
