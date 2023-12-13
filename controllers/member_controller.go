@@ -174,6 +174,24 @@ func LoginMember(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Login successful", "token": tokenString})
 }
 
+func GetProfile(c *fiber.Ctx) error {
+	user := c.Locals("user")
+	// userClaims, ok := user.(jwt.MapClaims)
+	// if !ok {
+	// 	return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+	// 		Status:  http.StatusInternalServerError,
+	// 		Message: "Failed to get user claims from context",
+	// 		Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+	// 	})
+	// }
+
+	return c.Status(http.StatusCreated).JSON(responses.GroupResponse{
+		Status:  http.StatusCreated,
+		Message: "Here is your profile",
+		Data:    &fiber.Map{"profile": user},
+	})
+}
+
 func GetAMember(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	memberId := c.Params("MemberId")

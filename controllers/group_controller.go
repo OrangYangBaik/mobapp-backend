@@ -45,6 +45,7 @@ func CreateGroup(c *fiber.Ctx) error {
 		ID:        primitive.NewObjectID(),
 		NamaGroup: group.NamaGroup,
 		RefKey:    group.RefKey,
+		Desc:      group.Desc,
 		Status:    true,
 	}
 
@@ -295,4 +296,101 @@ func JoinGroup(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "User successfully joined the group",
 	})
+}
+
+func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Match memberships for the given user ID
+	matchStage := bson.D{primitive.E{Key: "$match", Value: bson.D{{Key: "id_member", Value: memberID}}}}
+
+	// Lookup groups based on the matched memberships
+	lookupStage := bson.D{
+		{Key: "$lookup", Value: bson.D{
+			{Key: "from", Value: "groups"},
+			{Key: "localField", Value: "id_group"},
+			{Key: "foreignField", Value: "_id"},
+			{Key: "as", Value: "group"},
+		}},
+	}
+
+	// Unwind the array of groups
+	unwindStage := bson.D{primitive.E{Key: "$unwind", Value: "$group"}}
+
+	// Project to shape the output
+	projectStage := bson.D{primitive.E{
+		Key: "$project",
+		Value: bson.D{
+			{Key: "_id", Value: "$group._id"},
+			{Key: "NamaGroup", Value: "$group.namagroup"},
+			{Key: "Desc", Value: "$group.desc"},
+			{Key: "RefKey", Value: "$group.refkey"},
+			{Key: "Status", Value: "$group.status"},
+		},
+	}}
+
+	// Execute the aggregation pipeline
+	cursor, err := membershipCollection.Aggregate(ctx, mongo.Pipeline{matchStage, lookupStage, unwindStage, projectStage})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var groups []models.Group
+	for cursor.Next(ctx) {
+		var group models.Group
+		if err := cursor.Decode(&group); err != nil {
+			return nil, err
+		}
+		groups = append(groups, group)
+	}
+
+	return groups, nil
+}
+
+func GetAllJoinedGroup(c *fiber.Ctx) error {
+	user := c.Locals("user")
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	memberID, err := primitive.ObjectIDFromHex(memberIDHex)
+
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid member ID",
+		})
+	}
+
+	memberGroups, err := GetMemberGroups(memberID)
+	if err != nil {
+		// Handle the error
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid member group",
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
+		Status:  http.StatusOK,
+		Message: "Success",
+		Data:    &fiber.Map{"groups": memberGroups},
+	})
+
 }
