@@ -11,6 +11,7 @@ func GroupRoute(app *fiber.App) {
 	app.Get("/group/:groupRefKey", controllers.GetAGroup)
 	app.Post("/group", middlewares.JWTMiddleware(), controllers.CreateGroup)
 	app.Delete("/group/deactivate/:groupRefKey", middlewares.JWTMiddleware(), controllers.DeactivateAGroup)
-	app.Post("/group/join/:groupID", middlewares.JWTMiddleware(), controllers.JoinGroup)
+	app.Put("/group/activate/:groupRefKey", middlewares.JWTMiddleware(), controllers.ActivateAGroup)
+	app.Post("/group/join/:groupRefKey", middlewares.JWTMiddleware(), controllers.JoinGroup)
 	app.Get("/allJoinedGroup", middlewares.JWTMiddleware(), controllers.GetAllJoinedGroup)
 }

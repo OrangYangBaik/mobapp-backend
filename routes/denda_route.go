@@ -10,7 +10,8 @@ import (
 func DendaRoute(app *fiber.App) {
 	app.Post("/addDenda", middlewares.JWTMiddleware(), controllers.CreateDenda)
 	app.Delete("/deleteDenda", middlewares.JWTMiddleware(), controllers.DeleteADenda)
-	app.Post("/payDenda", middlewares.JWTMiddleware(), controllers.PayDenda)
+	app.Post("/payDenda", controllers.PayDenda)
+	app.Post("/editDenda/:dendaID/:groupRefKey", middlewares.JWTMiddleware(), controllers.EditADenda)
 	app.Get("/allDenda/:memberID/:groupID", controllers.GetAllDenda)
 	app.Get("/paidDenda/:memberID/:groupID", controllers.GetPaidDenda)
 	app.Get("/unPaidDenda/:memberID/:groupID", controllers.GetUnPaidDenda)

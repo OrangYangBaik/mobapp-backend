@@ -7,4 +7,5 @@ type Membership struct {
 	ID_Member primitive.ObjectID `json:"id_member,omitempty" validate:"required"`
 	ID_Group  primitive.ObjectID `json:"id_group,omitempty" validate:"required"`
 	IsAdmin   bool               `json:"is_admin,omitempty"`
+	IsAllowed bool               `json:"is_allowed,omitempty" bson:"is_allowed" validate:"required"`
 }

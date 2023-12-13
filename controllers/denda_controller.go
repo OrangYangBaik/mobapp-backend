@@ -33,6 +33,7 @@ func CreateDenda(c *fiber.Ctx) error {
 	type DendaJSON struct {
 		ID_Group  primitive.ObjectID `json:"id_group" validate:"required"`
 		ID_Member primitive.ObjectID `json:"id_member" validate:"required"`
+		Title     string             `json:"title" validate:"required"`
 		Hari      string             `json:"hari" validate:"required"`
 		Nominal   int                `json:"nominal" validate:"required"`
 		Desc      string             `json:"desc" validate:"required"`
@@ -106,6 +107,7 @@ func CreateDenda(c *fiber.Ctx) error {
 		ID:        primitive.NewObjectID(),
 		ID_Member: dendaJSON.ID_Member,
 		ID_Group:  dendaJSON.ID_Group,
+		Title:     dendaJSON.Title,
 		Hari:      dendaJSON.Hari,
 		Nominal:   dendaJSON.Nominal,
 		Desc:      dendaJSON.Desc,
@@ -148,7 +150,6 @@ func DeleteADenda(c *fiber.Ctx) error {
 	}
 
 	user := c.Locals("user")
-	//fmt.Println(user)
 	userClaims, ok := user.(jwt.MapClaims)
 	if !ok {
 		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
@@ -202,6 +203,79 @@ func DeleteADenda(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(
 		responses.DendaResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Denda successfully paid!"}},
 	)
+}
+
+func EditADenda(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dendaId := c.Params("dendaId")
+	groupRefKey := c.Params("groupRefKey")
+	var denda models.Denda
+	defer cancel()
+
+	user := c.Locals("user")
+	userClaims, ok := user.(jwt.MapClaims)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user claims from context",
+			Data:    &fiber.Map{"error": "user claims not found or not a MapClaims"},
+		})
+	}
+
+	memberIDHex, ok := userClaims["id"].(string)
+	if !ok {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Failed to get user ID from claims",
+			Data:    &fiber.Map{"error": "user ID not found or not a string"},
+		})
+	}
+
+	isAdmin, err := checkAdmin(ctx, memberIDHex, groupRefKey)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error checking admin status",
+			Data:    &fiber.Map{"error": err.Error()},
+		})
+	}
+
+	if !isAdmin {
+		return c.Status(http.StatusUnauthorized).JSON(responses.GroupResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "Unauthorized, only group admin can retrieve all members",
+			Data:    nil,
+		})
+	}
+
+	objId, _ := primitive.ObjectIDFromHex(dendaId)
+
+	if err := c.BodyParser(&denda); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+	}
+
+	if validationErr := dendaValidate.Struct(&denda); validationErr != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": validationErr.Error()}})
+	}
+
+	update := bson.M{"title": denda.Title, "hari": denda.Hari, "nominal": denda.Nominal, "desc": denda.Desc}
+
+	result, err := dendaCollection.UpdateOne(ctx, bson.M{"_id": objId}, bson.M{"$set": update})
+
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+	}
+
+	var updatedDenda models.Denda
+	if result.MatchedCount == 1 {
+		err := dendaCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&updatedDenda)
+
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		}
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.DendaResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": updatedDenda}})
 }
 
 //buat file upload tapi g jadi
