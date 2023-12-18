@@ -20,6 +20,7 @@ var groupCollection *mongo.Collection = configs.GetCollection(configs.DB, "group
 var membershipCollection *mongo.Collection = configs.GetCollection(configs.DB, "memberships")
 var groupValidate = validator.New()
 
+// create group
 func CreateGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -111,6 +112,7 @@ func CreateGroup(c *fiber.Ctx) error {
 	})
 }
 
+// fungsi untuk mendapatkan group dari groupRefKey
 func GetAGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupRefKey := c.Params("groupRefKey")
@@ -137,6 +139,7 @@ func GetAGroup(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(responses.GroupResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": group}})
 }
 
+// fungsi untuk deaktivasi sebuah group
 func DeactivateAGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupRefKey := c.Params("groupRefkey")
@@ -196,6 +199,7 @@ func DeactivateAGroup(c *fiber.Ctx) error {
 		})
 	}
 
+	// jika current loggedin user adalah admin di group tersebut maka akan user dapat melakukan deaktivasi group
 	if isAdmin {
 		update := bson.M{"status": false}
 		result, err := groupCollection.UpdateOne(ctx, bson.M{"_id": group.ID}, bson.M{"$set": update})
@@ -221,6 +225,7 @@ func DeactivateAGroup(c *fiber.Ctx) error {
 	)
 }
 
+// fungsi untuk aktivasi sebuah group
 func ActivateAGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupRefKey := c.Params("groupRefkey")
@@ -280,6 +285,7 @@ func ActivateAGroup(c *fiber.Ctx) error {
 		})
 	}
 
+	// jika current loggedin user adalah admin di group tersebut maka akan user dapat melakukan aktivasi group
 	if isAdmin {
 		update := bson.M{"status": true}
 		result, err := groupCollection.UpdateOne(ctx, bson.M{"_id": group.ID}, bson.M{"$set": update})
@@ -305,6 +311,7 @@ func ActivateAGroup(c *fiber.Ctx) error {
 	)
 }
 
+// fungsi untuk join group
 func JoinGroup(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -330,6 +337,7 @@ func JoinGroup(c *fiber.Ctx) error {
 		})
 	}
 
+	// mengecek apakah user telah loggedin atau tidak
 	user := c.Locals("user")
 	userClaims, ok := user.(jwt.MapClaims)
 	if !ok {
@@ -355,6 +363,7 @@ func JoinGroup(c *fiber.Ctx) error {
 		})
 	}
 
+	// mengecek apakah user telah masuk ke group atau tidak sehinggga tidak ada double entry
 	var existingMembership models.Membership
 	err = membershipCollection.FindOne(
 		ctx,
@@ -380,6 +389,7 @@ func JoinGroup(c *fiber.Ctx) error {
 		IsAllowed: false,
 	}
 
+	// masukkan ke membership
 	_, err = membershipCollection.InsertOne(ctx, newMembership)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -397,14 +407,19 @@ func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Match memberships for the given user ID
+	// mirip syarat join pada SQL dengan menggunakan $match
 	matchStage := bson.D{primitive.E{Key: "$match",
 		Value: bson.D{
 			{Key: "id_member", Value: memberID},
 			{Key: "is_allowed", Value: true},
 		}}}
 
-	// Lookup groups based on the matched memberships
+	// lookup mirip join dari SQL, menggabungkan data dari collection groups berdasarkan id_group
+	// {Key: "from", Value: "groups"}: kita akan melakukan lookup pada collection groups.
+	// {Key: "localField", Value: "id_group"}: atribut id_group pada collection membershipCollection akan digunakan untuk pencocokan.
+	// {Key: "foreignField", Value: "_id"}: id_group dari membershipCollection akan dicocokkan dengan atribut _id pada collection groups.
+	// {Key: "as", Value: "group"}: hasil dalam bentuk array akan diberi namanya group
+
 	lookupStage := bson.D{
 		{Key: "$lookup", Value: bson.D{
 			{Key: "from", Value: "groups"},
@@ -414,10 +429,10 @@ func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
 		}},
 	}
 
-	// Unwind the array of groups
+	// berfungsi untuk merapikan hasil lookup sehingga setiap elemen array jadi document terpisah
 	unwindStage := bson.D{primitive.E{Key: "$unwind", Value: "$group"}}
 
-	// Project to shape the output
+	// berfungsi untuk menentukan output atau hasil dari lookup
 	projectStage := bson.D{primitive.E{
 		Key: "$project",
 		Value: bson.D{
@@ -429,7 +444,7 @@ func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
 		},
 	}}
 
-	// Execute the aggregation pipeline
+	// proses aggregasi
 	cursor, err := membershipCollection.Aggregate(ctx, mongo.Pipeline{matchStage, lookupStage, unwindStage, projectStage})
 	if err != nil {
 		return nil, err
@@ -437,6 +452,7 @@ func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
 	defer cursor.Close(ctx)
 
 	var groups []models.Group
+	// setiap elemen dari hasil aggregasi dimasukkan ke array groups
 	for cursor.Next(ctx) {
 		var group models.Group
 		if err := cursor.Decode(&group); err != nil {
@@ -448,6 +464,7 @@ func GetMemberGroups(memberID primitive.ObjectID) ([]models.Group, error) {
 	return groups, nil
 }
 
+// fungsi yang mengambil semua group yang user join
 func GetAllJoinedGroup(c *fiber.Ctx) error {
 	user := c.Locals("user")
 	userClaims, ok := user.(jwt.MapClaims)

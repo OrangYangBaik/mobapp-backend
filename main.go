@@ -12,6 +12,7 @@ import (
 func main() {
 	app := fiber.New()
 
+	// mengambil env variable PORT
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "6000"
@@ -25,5 +26,6 @@ func main() {
 	routes.GroupRoute(app)
 	routes.DendaRoute(app)
 
+	// akses server side melalui IP dan port yang ditentukan (pada railway)
 	log.Fatal(app.Listen("0.0.0.0:" + port))
 }

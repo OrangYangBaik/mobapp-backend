@@ -21,11 +21,13 @@ import (
 var dendaCollection *mongo.Collection = configs.GetCollection(configs.DB, "dendas")
 var dendaValidate = validator.New()
 
+// mengecek apakah file berekstensi jpg jpeg atau png
 func isJPGPNGFile(filename string) bool {
 	ext := filepath.Ext(filename)
 	return strings.EqualFold(ext, ".jpg") || strings.EqualFold(ext, ".jpeg") || strings.EqualFold(ext, ".png")
 }
 
+// fungsi create denda
 func CreateDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -130,6 +132,7 @@ func CreateDenda(c *fiber.Ctx) error {
 	})
 }
 
+// fungsi untuk delete denda
 func DeleteADenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -185,7 +188,7 @@ func DeleteADenda(c *fiber.Ctx) error {
 		})
 	}
 
-	//objId, _ := primitive.ObjectIDFromHex(deleteReq.ID)
+	// update status pembayaran menjadi true / sudah bayar
 	update := bson.M{"is_paid": true}
 	result, err := dendaCollection.UpdateOne(ctx, bson.M{"_id": deleteReq.ID}, bson.M{"$set": update})
 	if err != nil {
@@ -205,6 +208,7 @@ func DeleteADenda(c *fiber.Ctx) error {
 	)
 }
 
+// fungsi untuk mengedit/update denda
 func EditADenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	dendaId := c.Params("dendaId")
@@ -278,7 +282,8 @@ func EditADenda(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(responses.DendaResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": updatedDenda}})
 }
 
-//buat file upload tapi g jadi
+// fungsi membayar denda dengan file processing namun tidak bisa dilakukan di hostingan railway yang gratis
+// api request harus menggunakan content type multipart/form-data
 // func PayDenda(c *fiber.Ctx) error {
 // 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 // 	defer cancel()
@@ -315,22 +320,28 @@ func EditADenda(c *fiber.Ctx) error {
 // 		})
 // 	}
 
+// mengambil file pada request body
 // 	file, err := c.FormFile("file")
 // 	if err != nil {
 // 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"message": "No file detected"})
 // 	}
 
+// berfungsi seperti file open pada C, untuk membaca file
 // 	// fileContent, err := file.Open()
 // 	// if err != nil {
 // 	// 	return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to open the file"})
 // 	// }
 // 	// defer fileContent.Close()
 
+// menentukan path penyimpanan file
 // 	// filePath := fmt.Sprintf("./uploads/dendas/%s", file.Filename)
+
+// menyimpan file
 // 	// if err := c.SaveFile(file, filePath); err != nil {
 // 	// 	return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to save the uploaded file"})
 // 	// }
 
+// update status pembayaran
 // 	filter := bson.M{"_id": paymentRequest.ID}
 // 	update := bson.M{"$set": bson.M{"is_paid": true, "path": filepath}}
 // 	_, err = dendaCollection.UpdateOne(ctx, filter, update)
@@ -349,6 +360,7 @@ func EditADenda(c *fiber.Ctx) error {
 // 	})
 // }
 
+// fungsi untuk membayar denda dengan link google drive
 func PayDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -408,6 +420,7 @@ func PayDenda(c *fiber.Ctx) error {
 	}
 }
 
+// fungsi untuk mengambil semua denda seorang member di group tertentu
 func GetAllDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -457,6 +470,7 @@ func GetAllDenda(c *fiber.Ctx) error {
 	})
 }
 
+// fungsi untuk menampilakn semua denda yang sudah dibayar dari seorang member pada group tertentu
 func GetPaidDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -506,6 +520,7 @@ func GetPaidDenda(c *fiber.Ctx) error {
 	})
 }
 
+// fungsi untuk menampilakn semua denda yang belum dibayar dari seorang member pada group tertentu
 func GetUnPaidDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
