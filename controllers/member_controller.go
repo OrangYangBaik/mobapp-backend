@@ -373,7 +373,7 @@ func IsAdmin(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(fiber.Map{"isAdmin": isAdmin})
 }
 
-// get semua member dalam sebuah group
+// get semua member dalam sebuah group yang sudah di acc
 func GetAllMember(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupRefKey := c.Params("groupRefKey")
@@ -381,6 +381,75 @@ func GetAllMember(c *fiber.Ctx) error {
 	var memberships []models.Membership
 	var group models.Group
 	defer cancel()
+
+	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	// proses pengambilan data dengan kondisi id_group == group.ID && is_allowed == true
+	cursor, err := membershipCollection.Find(ctx, bson.M{"id_group": group.ID, "is_allowed": true})
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving memberships",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+	defer cursor.Close(ctx)
+
+	// memasukkan data yang didapat ke array of struct membership
+	if err := cursor.All(ctx, &memberships); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error decoding memberships",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	// iterasi setiap membership, dapatkan member di memberCollection lalu masukkan ke array members
+	for _, membership := range memberships {
+		var member models.Member
+		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+				Status:  http.StatusInternalServerError,
+				Message: "Error retrieving member",
+				Data:    &fiber.Map{"data": err.Error()},
+			})
+		}
+		members = append(members, member)
+	}
+
+	return c.Status(http.StatusOK).JSON(
+		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": members}},
+	)
+}
+
+// get semua member dalam sebuah group oleh admin
+func GetAllMemberAdmin(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	groupRefKey := c.Params("groupRefKey")
+	var memberships []models.Membership
+	var group models.Group
+	defer cancel()
+
+	type MemberWithStatus struct {
+		models.Member
+		IsAllowed bool `json:"is_allowed"`
+	}
 
 	user := c.Locals("user")
 	userClaims, ok := user.(jwt.MapClaims)
@@ -435,8 +504,8 @@ func GetAllMember(c *fiber.Ctx) error {
 		})
 	}
 
-	// proses pengambilan data dengan kondisi id_group == group.ID && is_allowed == true
-	cursor, err := membershipCollection.Find(ctx, bson.M{"id_group": group.ID, "is_allowed": true})
+	// proses pengambilan data dengan kondisi id_group == group.ID
+	cursor, err := membershipCollection.Find(ctx, bson.M{"id_group": group.ID})
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
 			Status:  http.StatusInternalServerError,
@@ -455,7 +524,8 @@ func GetAllMember(c *fiber.Ctx) error {
 		})
 	}
 
-	// iterasi setiap membership, dapatkan member di memberCollection lalu masukkan ke array members
+	// iterasi setiap membership, dapatkan member di memberCollection lalu masukkan ke array membersWithStatus
+	var membersWithStatus []MemberWithStatus
 	for _, membership := range memberships {
 		var member models.Member
 		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
@@ -466,11 +536,16 @@ func GetAllMember(c *fiber.Ctx) error {
 				Data:    &fiber.Map{"data": err.Error()},
 			})
 		}
-		members = append(members, member)
+		memberWithStatus := MemberWithStatus{
+			Member:    member,
+			IsAllowed: membership.IsAllowed,
+		}
+
+		membersWithStatus = append(membersWithStatus, memberWithStatus)
 	}
 
 	return c.Status(http.StatusOK).JSON(
-		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": members}},
+		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": membersWithStatus}},
 	)
 }
 
