@@ -16,6 +16,7 @@ func MemberRoute(app *fiber.App) {
 	app.Get("/accMember", middlewares.JWTMiddleware(), controllers.AccMember)
 
 	member := app.Group("/members", middlewares.JWTMiddleware())
+	member.Get("/:groupRefKey", controllers.IsAdmin)
 	member.Get("/:memberID/:groupRefKey", controllers.GetAMember)
 	member.Get("/:groupRefKey", controllers.GetAllMember)
 	member.Delete("/kickAMember", controllers.KickAMember)
