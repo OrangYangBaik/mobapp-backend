@@ -19,7 +19,7 @@ func MemberRoute(app *fiber.App) {
 	member.Get("/isAdmin/:groupRefKey", controllers.IsAdmin)
 	member.Get("/:memberID/:groupRefKey", controllers.GetAMember)
 	member.Get("/:groupRefKey", controllers.GetAllMember)
-	member.Delete("/kickAMember", controllers.KickAMember)
+	member.Post("/kickAMember", controllers.KickAMember)
 	member.Delete("/:memberID", controllers.DeleteAMember)
 	member.Put("/edit/giveAdmin", controllers.GiveAdmin)
 	member.Put("/edit/revokeAdmin", controllers.RevokeAdmin)
