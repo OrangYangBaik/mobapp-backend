@@ -11,7 +11,6 @@ func MemberRoute(app *fiber.App) {
 	app.Post("/member", controllers.CreateMember)
 	app.Post("/member/login", controllers.LoginMember)
 	app.Get("/member/:memberID", controllers.GetAMember)
-	app.Get("/isAdmin/:groupRefKey", controllers.IsAdmin)
 	app.Get("/getProfile", middlewares.JWTMiddleware(), controllers.GetProfile)
 	app.Get("/accMember", middlewares.JWTMiddleware(), controllers.AccMember)
 
