@@ -377,10 +377,14 @@ func IsAdmin(c *fiber.Ctx) error {
 func GetAllMember(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	groupRefKey := c.Params("groupRefKey")
-	var members []models.Member
 	var memberships []models.Membership
 	var group models.Group
 	defer cancel()
+
+	type MemberWithStatusAdmin struct {
+		models.Member
+		IsAdmin bool `json:"is_admin"`
+	}
 
 	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
 	if err != nil {
@@ -420,6 +424,7 @@ func GetAllMember(c *fiber.Ctx) error {
 	}
 
 	// iterasi setiap membership, dapatkan member di memberCollection lalu masukkan ke array members
+	var membersWithStatusAdmin []MemberWithStatusAdmin
 	for _, membership := range memberships {
 		var member models.Member
 		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
@@ -430,11 +435,16 @@ func GetAllMember(c *fiber.Ctx) error {
 				Data:    &fiber.Map{"data": err.Error()},
 			})
 		}
-		members = append(members, member)
+		memberWithStatus := MemberWithStatusAdmin{
+			Member:  member,
+			IsAdmin: membership.IsAdmin,
+		}
+
+		membersWithStatusAdmin = append(membersWithStatusAdmin, memberWithStatus)
 	}
 
 	return c.Status(http.StatusOK).JSON(
-		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": members}},
+		responses.MemberResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": membersWithStatusAdmin}},
 	)
 }
 
@@ -449,6 +459,7 @@ func GetAllMemberAdmin(c *fiber.Ctx) error {
 	type MemberWithStatus struct {
 		models.Member
 		IsAllowed bool `json:"is_allowed"`
+		IsAdmin   bool `json:"is_admin"`
 	}
 
 	user := c.Locals("user")
@@ -539,6 +550,7 @@ func GetAllMemberAdmin(c *fiber.Ctx) error {
 		memberWithStatus := MemberWithStatus{
 			Member:    member,
 			IsAllowed: membership.IsAllowed,
+			IsAdmin:   membership.IsAdmin,
 		}
 
 		membersWithStatus = append(membersWithStatus, memberWithStatus)
