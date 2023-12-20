@@ -189,7 +189,7 @@ func DeleteADenda(c *fiber.Ctx) error {
 	}
 
 	dendaID := primitive.ObjectID(deleteReq.ID)
-	result, err := memberCollection.DeleteOne(ctx, bson.M{"_id": dendaID})
+	result, err := dendaCollection.DeleteOne(ctx, bson.M{"_id": dendaID})
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
