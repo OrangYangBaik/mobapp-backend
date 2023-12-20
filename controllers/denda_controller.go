@@ -188,19 +188,16 @@ func DeleteADenda(c *fiber.Ctx) error {
 		})
 	}
 
-	// update status pembayaran menjadi true / sudah bayar
-	update := bson.M{"is_paid": true}
-	result, err := dendaCollection.UpdateOne(ctx, bson.M{"_id": deleteReq.ID}, bson.M{"$set": update})
+	dendaID := primitive.ObjectID(deleteReq.ID)
+	result, err := memberCollection.DeleteOne(ctx, bson.M{"_id": dendaID})
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusInternalServerError).JSON(responses.MemberResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
 	}
 
-	if result.MatchedCount != 1 {
-		return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
-			Status:  http.StatusNotFound,
-			Message: "Denda not found",
-			Data:    nil,
-		})
+	if result.DeletedCount < 1 {
+		return c.Status(http.StatusNotFound).JSON(
+			responses.MemberResponse{Status: http.StatusNotFound, Message: "error", Data: &fiber.Map{"data": "Member with specified ID not found!"}},
+		)
 	}
 
 	return c.Status(http.StatusOK).JSON(
