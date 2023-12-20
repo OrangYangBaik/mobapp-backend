@@ -11,4 +11,5 @@ type Denda struct {
 	Nominal   int                `bson:"nominal,omitempty" json:"nominal,omitempty" validate:"required"`
 	Desc      string             `bson:"desc,omitempty" json:"desc,omitempty" validate:"required"`
 	IsPaid    bool               `bson:"is_paid" json:"is_paid"`
+	Link      string             `bson:"link" json:"link"`
 }

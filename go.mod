@@ -3,6 +3,7 @@ module fiber-mongo-api
 go 1.21
 
 require (
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-playground/validator/v10 v10.16.0
 	github.com/gofiber/fiber/v2 v2.51.0
 	github.com/joho/godotenv v1.5.1
@@ -12,7 +13,6 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

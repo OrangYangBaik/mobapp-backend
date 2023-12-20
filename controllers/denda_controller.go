@@ -470,6 +470,37 @@ func GetAllDenda(c *fiber.Ctx) error {
 	})
 }
 
+func GetDenda(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var denda models.Denda
+
+	dendaID := c.Params("dendaID")
+
+	objDendaID, err := primitive.ObjectIDFromHex(dendaID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.DendaResponse{
+			Status:  http.StatusBadRequest,
+			Message: "Invalid denda ID",
+		})
+	}
+	err = dendaCollection.FindOne(ctx, bson.M{"_id": objDendaID}).Decode(&denda)
+
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.DendaResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error finding denda",
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
+		Status:  http.StatusOK,
+		Message: "Success",
+		Data:    &fiber.Map{"data": denda},
+	})
+}
+
 // fungsi untuk menampilakn semua denda yang sudah dibayar dari seorang member pada group tertentu
 func GetPaidDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
