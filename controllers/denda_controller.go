@@ -472,6 +472,112 @@ func GetAllDenda(c *fiber.Ctx) error {
 	})
 }
 
+func calculateTotalNominalForMember(ctx context.Context, memberID primitive.ObjectID) int {
+	// Fetch all denda records for the member
+	cursor, err := dendaCollection.Find(ctx, bson.M{"id_member": memberID})
+	if err != nil {
+		// Handle the error (e.g., log or return a default value)
+		return 0.0
+	}
+	defer cursor.Close(ctx)
+
+	// Sum up the nominal values for each denda record
+	var totalNominal int
+	for cursor.Next(ctx) {
+		var denda models.Denda
+		if err := cursor.Decode(&denda); err == nil {
+			totalNominal += denda.Nominal
+		}
+	}
+
+	return totalNominal
+}
+
+func GetDendaNamaTotal(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type MemberInfo struct {
+		ID      primitive.ObjectID `json:"id"`
+		Name    string             `json:"name"`
+		Nominal int                `json:"nominal"`
+	}
+
+	groupRefKey := c.Params("groupRefKey")
+
+	// Fetch the group
+	var group models.Group
+	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return c.Status(http.StatusNotFound).JSON(responses.GroupResponse{
+				Status:  http.StatusNotFound,
+				Message: "Group not found",
+				Data:    nil,
+			})
+		}
+
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving group",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+
+	cursor, err := membershipCollection.Find(ctx, bson.M{"id_group": group.ID})
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "Error retrieving memberships",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
+	}
+	defer cursor.Close(ctx)
+
+	// Create a slice to store member information
+	var memberInfoList []MemberInfo
+
+	// Iterate through members to get names and calculate total nominal
+	for cursor.Next(ctx) {
+		var membership models.Membership
+		if err := cursor.Decode(&membership); err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+				Status:  http.StatusInternalServerError,
+				Message: "Error decoding membership",
+				Data:    &fiber.Map{"data": err.Error()},
+			})
+		}
+
+		// Fetch each member's data
+		var member models.Member
+		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(responses.GroupResponse{
+				Status:  http.StatusInternalServerError,
+				Message: "Error retrieving member",
+				Data:    &fiber.Map{"data": err.Error()},
+			})
+		}
+
+		// Calculate the total nominal for the member based on denda records
+		totalNominal := calculateTotalNominalForMember(ctx, member.ID)
+
+		// Append member information to the slice
+		memberInfo := MemberInfo{
+			ID:      member.ID,
+			Name:    member.Nama,
+			Nominal: totalNominal,
+		}
+		memberInfoList = append(memberInfoList, memberInfo)
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.GroupResponse{
+		Status:  http.StatusOK,
+		Message: "Success",
+		Data:    &fiber.Map{"members": memberInfoList},
+	})
+}
+
 func GetDenda(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
