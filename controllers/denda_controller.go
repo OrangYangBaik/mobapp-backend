@@ -460,10 +460,15 @@ func GetAllDenda(c *fiber.Ctx) error {
 		})
 	}
 
+	var totalDenda int
+	for _, denda := range dendas {
+		totalDenda += denda.Nominal
+	}
+
 	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
 		Status:  http.StatusOK,
 		Message: "Success",
-		Data:    &fiber.Map{"dendas": dendas},
+		Data:    &fiber.Map{"dendas": dendas, "total": totalDenda},
 	})
 }
 
@@ -541,10 +546,15 @@ func GetPaidDenda(c *fiber.Ctx) error {
 		})
 	}
 
+	var totalDenda int
+	for _, denda := range dendas {
+		totalDenda += denda.Nominal
+	}
+
 	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
 		Status:  http.StatusOK,
 		Message: "Success",
-		Data:    &fiber.Map{"dendas": dendas},
+		Data:    &fiber.Map{"dendas": dendas, "total": totalDenda},
 	})
 }
 
@@ -591,9 +601,14 @@ func GetUnPaidDenda(c *fiber.Ctx) error {
 		})
 	}
 
+	var totalDenda int
+	for _, denda := range dendas {
+		totalDenda += denda.Nominal
+	}
+
 	return c.Status(http.StatusOK).JSON(responses.DendaResponse{
 		Status:  http.StatusOK,
 		Message: "Success",
-		Data:    &fiber.Map{"dendas": dendas},
+		Data:    &fiber.Map{"dendas": dendas, "total": totalDenda},
 	})
 }
