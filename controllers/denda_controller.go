@@ -204,7 +204,7 @@ func DeleteADenda(c *fiber.Ctx) error {
 	}
 
 	return c.Status(http.StatusOK).JSON(
-		responses.DendaResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Denda successfully paid!"}},
+		responses.DendaResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "Denda successfully deleted!"}},
 	)
 }
 
