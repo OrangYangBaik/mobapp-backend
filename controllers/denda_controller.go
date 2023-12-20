@@ -472,16 +472,13 @@ func GetAllDenda(c *fiber.Ctx) error {
 	})
 }
 
-func calculateTotalNominalForMember(ctx context.Context, memberID primitive.ObjectID) int {
-	// Fetch all denda records for the member
+func calculateTotalDenda(ctx context.Context, memberID primitive.ObjectID) int {
 	cursor, err := dendaCollection.Find(ctx, bson.M{"id_member": memberID})
 	if err != nil {
-		// Handle the error (e.g., log or return a default value)
 		return 0.0
 	}
 	defer cursor.Close(ctx)
 
-	// Sum up the nominal values for each denda record
 	var totalNominal int
 	for cursor.Next(ctx) {
 		var denda models.Denda
@@ -505,7 +502,6 @@ func GetDendaNamaTotal(c *fiber.Ctx) error {
 
 	groupRefKey := c.Params("groupRefKey")
 
-	// Fetch the group
 	var group models.Group
 	err := groupCollection.FindOne(ctx, bson.M{"refkey": groupRefKey}).Decode(&group)
 	if err != nil {
@@ -534,10 +530,8 @@ func GetDendaNamaTotal(c *fiber.Ctx) error {
 	}
 	defer cursor.Close(ctx)
 
-	// Create a slice to store member information
 	var memberInfoList []MemberInfo
 
-	// Iterate through members to get names and calculate total nominal
 	for cursor.Next(ctx) {
 		var membership models.Membership
 		if err := cursor.Decode(&membership); err != nil {
@@ -548,7 +542,6 @@ func GetDendaNamaTotal(c *fiber.Ctx) error {
 			})
 		}
 
-		// Fetch each member's data
 		var member models.Member
 		err := memberCollection.FindOne(ctx, bson.M{"_id": membership.ID_Member}).Decode(&member)
 		if err != nil {
@@ -559,10 +552,8 @@ func GetDendaNamaTotal(c *fiber.Ctx) error {
 			})
 		}
 
-		// Calculate the total nominal for the member based on denda records
-		totalNominal := calculateTotalNominalForMember(ctx, member.ID)
+		totalNominal := calculateTotalDenda(ctx, member.ID)
 
-		// Append member information to the slice
 		memberInfo := MemberInfo{
 			ID:      member.ID,
 			Name:    member.Nama,
