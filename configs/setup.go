@@ -44,6 +44,15 @@ func ConnectDB() *mongo.Client {
 		log.Fatal(err)
 	}
 
+	refKeyIndexModel := mongo.IndexModel{
+		Keys:    bson.D{{Key: "refKey", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}
+	_, err = client.Database("golangAPI").Collection("groups").Indexes().CreateOne(ctx, refKeyIndexModel)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return client
 }
 
